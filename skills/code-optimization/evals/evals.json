@@ -1,0 +1,44 @@
+{
+  "skill_name": "code-optimization",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Please optimize this existing Python handler. At 30 requests/second, p95 is 1.8s; tracing shows about 1.6s in 100 serial customer-service calls and 8ms in SQL. The customer service has a batch method `get_many(ids)` that returns a mapping and returns null for IDs it does not find. Keep the response shape and order, don't add a cache or dependency, and show a minimal patch plus focused tests.\n\n```python\nasync def list_orders(user_id):\n    orders = await db.fetch(\n        \"SELECT id, customer_id, total FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 100\",\n        [user_id],\n    )\n    for order in orders:\n        order[\"customer\"] = await customer_service.get(order[\"customer_id\"])\n    return orders\n```",
+      "expected_output": "A minimal change that replaces the per-order service calls with one batch request while preserving order and missing-customer behavior, focused correctness/query-count coverage, and a before/after measurement plan. It should avoid speculative caching or unbounded concurrency.",
+      "files": [],
+      "expectations": [
+        "Replaces the serial per-order service lookups with the provided batch method, rather than unbounded parallel calls.",
+        "Preserves input order and response shape, and assigns null for missing customers.",
+        "Includes focused coverage for batch-call count and result semantics.",
+        "Uses the supplied trace as baseline evidence and gives an honest before/after validation plan without claiming an unmeasured speedup.",
+        "Avoids speculative caching or unrelated changes."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "A PostgreSQL endpoint has p95 latency of 430ms. In staging, this query plan shows a sequential scan removing 3.8 million rows, followed by a top-N sort taking about 340ms. The `jobs` table has 4.2 million rows and receives about 250 inserts/second. Existing indexes are the primary key and `(account_id, status)`. Query: `SELECT id, account_id, created_at, status FROM jobs WHERE account_id = $1 AND archived_at IS NULL ORDER BY created_at DESC LIMIT 50`. Propose a minimal migration and a safe validation/rollback plan. Preserve the query's results; do not add caching or run anything against production.",
+      "expected_output": "An evidence-based candidate index for the query's account filter, active-row predicate, and ordering; discussion of write/storage cost; and a safe staging query-plan/latency comparison plus rollback approach. It should not claim a win before validation or weaken correctness.",
+      "files": [],
+      "expectations": [
+        "Proposes an index aligned to account_id, archived_at IS NULL, and created_at DESC, justified by the supplied plan.",
+        "Preserves the query's result semantics and does not replace the indexed query with caching or an unsupported rewrite.",
+        "Discusses index write/storage cost in light of 250 inserts per second and existing indexes.",
+        "Validates plan and latency on representative staging data and does not claim an unmeasured improvement.",
+        "Provides a safe rollback path and avoids production execution."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Optimize this Python dashboard handler for speed and reliability. Billing and inventory are required; recommendations are optional and may be omitted on failure. The three reads are independent. Traces show billing p95 140ms, inventory p95 180ms, recommendations p95 650ms with occasional multi-second hangs; the route p95 is about 1s and the target is below 500ms. The shared HTTP client already pools connections. Show a small patch and tests. Don't add Redis, dependencies, or blanket retries. Preserve failures from required dependencies, request cancellation, bounded downstream load, and optional fallback semantics; say if tests or measurements cannot be run.\n\n```python\nasync def dashboard(user_id):\n    billing = await billing_api.summary(user_id)\n    inventory = await inventory_api.summary(user_id)\n    recommendations = await recommendations_api.for_user(user_id)\n    return {\n        \"billing\": billing,\n        \"inventory\": inventory,\n        \"recommendations\": recommendations,\n    }\n```",
+      "expected_output": "A bounded approach that overlaps independent calls and applies a short explicit deadline/fallback to the optional recommendation call, preserving successful response fields and the allowed omitted-on-failure behavior. Tests should cover overlap, optional timeout/failure, required-call failure, and cancellation. It should avoid speculative caching and retries, and not claim unrun tests or unmeasured latency improvements.",
+      "files": [],
+      "expectations": [
+        "Overlaps the three independent calls without introducing unbounded fan-out or a new client/pool.",
+        "Gives the optional recommendations call a short deadline and explicit fallback, preserving successful response fields and the allowed omitted-on-failure behavior.",
+        "Allows billing/inventory failures and request cancellation to propagate rather than swallowing them as optional failures.",
+        "Includes focused tests for overlap, optional timeout/failure, and required-call failure.",
+        "Avoids speculative caching, blanket retries, and dependencies; does not claim tests or latency results that were not run."
+      ]
+    }
+  ]
+}
